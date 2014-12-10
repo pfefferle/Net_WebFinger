@@ -92,50 +92,21 @@ class Net_WebFinger
      *
      * If an error occurs, you find it in the reaction's $error property.
      *
-     * @param string $identifier E-mail address like identifier ("user@host")
+     * @param string $url Identification URL. Full URLs and schema-less ones
+     *                    supported. When the schema is missing, "acct:" is used.
      *
      * @return Net_WebFinger_Reaction Reaction object
      *
      * @see Net_WebFinger_Reaction::$error
      */
-    public function finger($identifier)
+    public function finger($url)
     {
-        $identifier = strtolower($identifier);
-
-        if (!preg_match("/^([a-zA-Z^:]+):(.*)$/i", $identifier, $match)) {
-            $scheme = "acct";
-        } else {
-            $scheme = $match[1];
+        $res = $this->getIdentifierAndHost($url);
+        if ($res instanceof Net_WebFinger_Reaction) {
+            return $res;
         }
 
-        $host = null;
-
-        switch ($scheme) {
-            case "http":
-            case "https":
-                $host = parse_url($identifier, PHP_URL_HOST);
-                break;
-            case "acct":
-            case "mailto":
-            case "xmpp":
-                if (strpos($identifier, '@') !== false) {
-                    $host = substr($identifier, strpos($identifier, '@') + 1);
-                }
-                break;
-        }
-
-        if (empty($host)) {
-            $react = new Net_WebFinger_Reaction();
-            $react->url = $identifier;
-            $react->error = new Net_WebFinger_Error(
-                'Idendifier not supported',
-                Net_WebFinger_Error::NOT_SUPPORTED,
-                $react->error
-            );
-
-            return $react;
-        }
-
+        list($identifier, $host) = $res;
         $react = $this->loadWebfinger($identifier, $host);
 
         if ($react->error === null) {
@@ -162,6 +133,56 @@ class Net_WebFinger
         }
 
         return $react;
+    }
+
+    /**
+     * Convert a single URL string to an identifier and its host.
+     * Automatically adds acct: if it's missing.
+     *
+     * @param string $url Some URL, with or without scheme
+     *
+     * @return Net_WebFinger_Reaction|array Error reaction or
+     *                                      array with identifier and host as
+     *                                      values
+     */
+    protected function getIdentifierAndHost($url)
+    {
+        if (!preg_match('/^([a-zA-Z+]+):/', $url, $match)) {
+            $identifier = 'acct:' . $url;
+            $scheme = 'acct';
+        } else {
+            $identifier = $url;
+            $scheme = $match[1];
+        }
+
+        $host = null;
+
+        switch ($scheme) {
+        case 'acct':
+        case 'mailto':
+        case 'xmpp':
+            if (strpos($identifier, '@') !== false) {
+                $host = substr($identifier, strpos($identifier, '@') + 1);
+            }
+            break;
+        default:
+            $host = parse_url($identifier, PHP_URL_HOST);
+            break;
+        }
+
+        if (empty($host)) {
+            $react = new Net_WebFinger_Reaction();
+            $react->url = $identifier;
+            $react->error = new Net_WebFinger_Error(
+                'Identifier not supported',
+                Net_WebFinger_Error::NOT_SUPPORTED,
+                $react->error
+            );
+
+            return $react;
+        }
+
+        return array($identifier, $host);
     }
 
     /**
@@ -279,7 +300,7 @@ class Net_WebFinger
             return $react;
         }
 
-        $account = 'acct:' . $identifier;
+        $account = $identifier;
         $userUrl = str_replace('{uri}', urlencode($account), $link->template);
 
         $react = $this->loadXrdCached($userUrl);
